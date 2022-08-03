@@ -6,3 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+nalgebra = "0.31.0"
+typed-io = "0.1.0"
+thiserror = "1.0.31"
+druid = "0.7.0"
