@@ -4,19 +4,22 @@ use std::marker::PhantomData;
 
 pub trait ReadFromBytes {
     type Error: From<io::Error>;
+    type Config;
 
-    fn read_from_bytes(input: &mut impl Read) -> Result<Self, Self::Error>
+    fn read_from_bytes(input: &mut impl Read, config: &Self::Config) -> Result<Self, Self::Error>
         where Self: Sized;
 }
 
 pub trait ReadData {
-    fn read_data<T: ReadFromBytes>(&mut self) -> Result<T, T::Error>
+    fn read_data<T: ReadFromBytes>(&mut self, config: &T::Config) -> Result<T, T::Error>
         where Self: Sized;
 }
 
 impl<R: Read> ReadData for R {
-    fn read_data<T: ReadFromBytes>(&mut self) -> Result<T, T::Error> {
-        T::read_from_bytes(self)
+    fn read_data<T: ReadFromBytes>(&mut self, config: &T::Config) -> Result<T, T::Error>
+        where Self: Sized
+    {
+        T::read_from_bytes(self, config)
     }
 }
 
@@ -25,7 +28,7 @@ pub struct DataIter<T: ReadFromBytes, R: Read, F>
 {
     input: R,
     predicate: F,
-    _marker: PhantomData<T>
+    config: T::Config
 }
 
 impl<T: ReadFromBytes, R: Read, F> Iterator for DataIter<T, R, F>
@@ -34,7 +37,7 @@ impl<T: ReadFromBytes, R: Read, F> Iterator for DataIter<T, R, F>
     type Item = Result<T, T::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let item = self.input.read_data::<T>();
+        let item = self.input.read_data::<T>(&self.config);
         return if !(self.predicate)(&item) {
             None
         } else {
@@ -52,7 +55,7 @@ fn stop_on_io_error<T>(item: &Result<T, io::Error>) -> bool {
 pub trait IntoDataIter<T: ReadFromBytes> : Read {
     type Predicate: Fn(&Result<T, T::Error>) -> bool;
 
-    fn data_iter(self) -> DataIter<T, Self, Self::Predicate>
+    fn data_iter(self, config: T::Config) -> DataIter<T, Self, Self::Predicate>
         where Self: Sized;
 }
 
@@ -63,13 +66,13 @@ impl<T, R> IntoDataIter<T> for R
 {
     type Predicate = PredicateFnPtr<T>;
 
-    fn data_iter(self) -> DataIter<T, Self, Self::Predicate>
+    fn data_iter(self, config: T::Config) -> DataIter<T, Self, Self::Predicate>
         where Self: Sized
     {
         DataIter {
             input: self,
             predicate: stop_on_io_error,
-            _marker: PhantomData
+            config
         }
     }
 }

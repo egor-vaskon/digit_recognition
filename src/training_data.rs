@@ -3,192 +3,13 @@ use std::io;
 use std::io::Read;
 use typed_io::TypedRead;
 use thiserror::Error;
-use crate::data::Image;
-use crate::io_ext::{IntoDataIter, ReadFromBytes, SimpleDataIter};
+use crate::data::{Image, ImageSize};
+use crate::io_ext::{IntoDataIter, ReadData, ReadFromBytes, SimpleDataIter};
 
-#[cfg(test)]
-mod test {
-    use std::io::Cursor;
-    use super::*;
+const IMAGES_MAGIC: u32 = 0x00000803;
+const LABELS_MAGIC: u32 = 0x00000801;
 
-    const IMAGE_HEADER_SIZE: usize =
-          4 /* width (4 be bytes) */
-        + 4 /* height (4 be bytes) */;
-
-    const IMAGE_WIDTH: u32 = 2;
-    const IMAGE_HEIGHT: u32 = 2;
-
-    const IMAGE_PIXELS_SIZE: usize =
-        1 /* pixel size */  * IMAGE_WIDTH as usize /* width */ * IMAGE_HEIGHT as usize /* height */;
-
-    const IMAGE_SIZE: usize = IMAGE_HEADER_SIZE + IMAGE_PIXELS_SIZE;
-    const LABEL_SIZE: usize = 1 /* digit (1 byte) */;
-
-    const HEADER_SIZE: usize =
-              MAGIC_SIZE /* magic (4 bytes) */
-            + 4 /* number of items (e.g. images or labels - 4 be bytes) */;
-
-    const NUM_ITEMS: u32 = 2;
-
-    const IMAGES_SIZE: usize = HEADER_SIZE + IMAGE_SIZE * NUM_ITEMS as usize;
-    const LABELS_SIZE: usize = HEADER_SIZE + LABEL_SIZE * NUM_ITEMS as usize;
-
-    const LABEL_DIGIT: u8 = 7;
-
-    static IMAGES_BYTES: [u8; IMAGES_SIZE] = [
-        // magic
-        MAGIC_BYTES[0], MAGIC_BYTES[1], MAGIC_BYTES[2], MAGIC_BYTES[3],
-
-        // number of images (in be)
-        0x00, 0x00, 0x00, 0x02,
-
-        // begin of the 1st image
-
-        0x00, 0x00, 0x00, 0x02, // width (in be)
-        0x00, 0x00, 0x00, 0x02, // height (in be)
-
-        // pixels (row major)
-        0x01, 0x02,
-        0x03, 0x04,
-
-        // end of the 1st image
-
-        // begin of the 2nd image
-
-        0x00, 0x00, 0x00, 0x02, // width (in be)
-        0x00, 0x00, 0x00, 0x02, // height (in be)
-
-        // pixels (row major)
-        0x01, 0x02,
-        0x03, 0x04,
-
-        // end of the 2nd image
-    ];
-
-    const LABELS_BYTES: [u8; LABELS_SIZE] = [
-        // magic
-        MAGIC_BYTES[0], MAGIC_BYTES[1], MAGIC_BYTES[2], MAGIC_BYTES[3],
-
-        // number of labels (in be)
-        0x00, 0x00, 0x00, 0x02,
-
-        // 1st label
-        0x07,
-
-        // 2nd label
-        0x07
-    ];
-
-    fn image_bytes() -> &'static [u8] {
-        &IMAGES_BYTES[HEADER_SIZE..HEADER_SIZE+IMAGE_SIZE]
-    }
-
-    fn label_bytes() -> &'static [u8] {
-        &LABELS_BYTES[HEADER_SIZE..HEADER_SIZE+LABEL_SIZE]
-    }
-
-    fn image_pixels() -> &'static [u8] {
-        const START: usize = HEADER_SIZE+IMAGE_HEADER_SIZE;
-        &IMAGES_BYTES[START..START+IMAGE_PIXELS_SIZE]
-    }
-
-    #[test]
-    fn test_read_image() {
-        let image =
-            Image::read_from_bytes(&mut Cursor::new(image_bytes()))
-                .unwrap();
-
-        assert_image_valid(image);
-    }
-
-    #[test]
-    fn test_read_label() {
-        let label =
-            Label::read_from_bytes(&mut Cursor::new(label_bytes()))
-                .unwrap();
-
-        assert_label_valid(label);
-    }
-
-    #[test]
-    fn test_read_training_sample() {
-        test_read_image();
-        test_read_label();
-    }
-
-    #[test]
-    fn test_read_image_set() {
-        let mut images = Cursor::new(IMAGES_BYTES);
-        let mut image_set =
-            TrainingImageSet::try_from(images).unwrap();
-
-        assert_eq!(image_set.image_count, NUM_ITEMS);
-
-        for _ in 0..image_set.image_count {
-            let image = image_set.images.next().unwrap().unwrap();
-            assert_image_valid(image);
-        }
-
-        assert!(image_set.images.next().is_none())
-    }
-
-    #[test]
-    fn test_read_label_set() {
-        let mut labels = Cursor::new(LABELS_BYTES);
-        let mut label_set =
-            TrainingLabelSet::try_from(labels).unwrap();
-
-        assert_eq!(label_set.label_count, NUM_ITEMS);
-
-        for _ in 0..label_set.label_count {
-            let label = label_set.labels.next().unwrap().unwrap();
-            assert_label_valid(label);
-        }
-
-        assert!(label_set.labels.next().is_none())
-    }
-
-    #[test]
-    fn test_read_training_dataset() {
-        let mut images = Cursor::new(IMAGES_BYTES);
-        let mut labels = Cursor::new(LABELS_BYTES);
-
-        let mut dataset =
-            TrainingDataset::from_readers(images, labels).unwrap();
-
-        assert_eq!(dataset.read, 0);
-
-        for i in 1..=NUM_ITEMS {
-            assert_valid(dataset.next().unwrap().unwrap());
-            assert_eq!(dataset.read, i);
-        }
-
-        assert!(dataset.next().is_none());
-    }
-
-    fn assert_valid(sample: LabeledTrainingData) {
-        assert_label_valid(sample.label);
-        assert_image_valid(sample.image);
-    }
-
-    fn assert_label_valid(label: Label) {
-        assert_eq!(label, Label::new(LABEL_DIGIT));
-    }
-
-    fn assert_image_valid(image: Image) {
-        assert_eq!(image,
-                   Image::builder()
-                       .with_size(IMAGE_WIDTH, IMAGE_HEIGHT)
-                       .with_pixels_row_major(image_pixels())
-                       .build());
-    }
-}
-
-const MAGIC_SIZE: usize = 4;
-const MAGIC_BYTES: [u8; MAGIC_SIZE] = [0x00, 0x00, 0x08, 0x01];
-const MAGIC: u32 = u32::from_be_bytes(MAGIC_BYTES);
-
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum DataKind {
     Image,
     Label
@@ -205,8 +26,9 @@ impl Display for DataKind {
 
 #[derive(Error, Debug)]
 pub enum ErrorKind {
-    #[error("expected magic number ({}), found {magic:#x} (in {dataset_kind})", MAGIC)]
+    #[error("expected magic number ({magic:#x}), found {found:#x} (in {dataset_kind})")]
     MagicNotFound {
+        found: u32,
         magic: u32,
         dataset_kind: DataKind
     },
@@ -223,19 +45,37 @@ pub enum ErrorKind {
 
 pub type Result<T> = std::result::Result<T, ErrorKind>;
 
-impl ReadFromBytes for Image {
+impl ReadFromBytes for ImageSize {
     type Error = io::Error;
+    type Config = ();
 
-    fn read_from_bytes(input: &mut impl Read) -> std::result::Result<Self, Self::Error> {
+    fn read_from_bytes(input: &mut impl Read,
+                       _config: &Self::Config) -> std::result::Result<Self, Self::Error>
+        where Self: Sized
+    {
         let width: u32 = input.read_be()?;
         let height: u32 = input.read_be()?;
-        let area = (width as usize) * (height as usize);
 
-        let mut pixels = vec![0; area];
+        Ok(ImageSize {
+            width,
+            height
+        })
+    }
+}
+
+impl ReadFromBytes for Image {
+    type Error = io::Error;
+    type Config = ImageSize;
+
+    fn read_from_bytes(input: &mut impl Read,
+                       config: &Self::Config) -> std::result::Result<Self, Self::Error>
+        where Self: Sized
+    {
+        let mut pixels = vec![0; config.area()];
         input.read_exact(&mut pixels)?;
 
         Ok(Image::builder()
-            .with_size(width, height)
+            .with_size(*config)
             .with_pixels_row_major(pixels)
             .build())
     }
@@ -251,12 +91,20 @@ impl Label {
     pub fn new(digit: u8) -> Self {
         Label { digit }
     }
+
+    pub fn digit(&self) -> u8 {
+        self.digit
+    }
 }
 
 impl ReadFromBytes for Label {
     type Error = io::Error;
+    type Config = ();
 
-    fn read_from_bytes(input: &mut impl Read) -> std::result::Result<Self, Self::Error> {
+    fn read_from_bytes(input: &mut impl Read,
+                       _config: &Self::Config) -> std::result::Result<Self, Self::Error>
+        where Self: Sized
+    {
         let digit: u8 = input.read_ne()?;
         Ok(Label::new(digit))
     }
@@ -274,15 +122,31 @@ impl LabeledTrainingData {
             image, label
         }
     }
+
+    pub fn image(&self) -> &Image {
+        &self.image
+    }
+
+    pub fn label(&self) -> &Label {
+        &self.label
+    }
+}
+
+const fn magic(data_kind: DataKind) -> u32 {
+    match data_kind {
+        DataKind::Image => IMAGES_MAGIC,
+        DataKind::Label => LABELS_MAGIC
+    }
 }
 
 fn verify_magic<R: Read>(input: &mut R, data_kind: DataKind) -> Result<()> {
-    let magic = input.read_be::<u32>()?;
-    return if magic == MAGIC {
+    let found = input.read_be::<u32>()?;
+    return if found == magic(data_kind) {
         Ok(())
     } else {
         Err(ErrorKind::MagicNotFound {
-            magic,
+            found,
+            magic: magic(data_kind),
             dataset_kind: data_kind
         })
     }
@@ -296,9 +160,12 @@ struct TrainingImageSet<R: Read> {
 impl<R: Read> TrainingImageSet<R> {
     fn try_from(mut input: R) -> Result<Self> {
         verify_magic(&mut input, DataKind::Image)?;
+
         let image_count: u32 = input.read_be()?;
+        let image_size: ImageSize = input.read_data(&())?;
+
         Ok(TrainingImageSet {
-            images: input.data_iter(),
+            images: input.data_iter(image_size),
             image_count
         })
     }
@@ -315,7 +182,7 @@ impl<R: Read> TrainingLabelSet<R> {
         verify_magic(&mut input, DataKind::Label)?;
         let label_count: u32 = input.read_be()?;
         Ok(TrainingLabelSet {
-            labels: input.data_iter(),
+            labels: input.data_iter(()),
             label_count
         })
     }
@@ -350,7 +217,7 @@ impl<I: Read, L: Read> TrainingDataset<I, L> {
         Ok(Self::new(images, labels))
     }
 
-    fn len(&self) -> u32 {
+    pub fn size(&self) -> u32 {
         self.images.image_count
     }
 }
@@ -359,7 +226,7 @@ impl<I: Read, L: Read> Iterator for TrainingDataset<I, L> {
     type Item = Result<LabeledTrainingData>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        return if self.read < self.len() {
+        return if self.read < self.size() {
             let image = match self.images.images.next() {
                 Some(Ok(image)) => image,
                 Some(Err(err)) => return Some(Err(err.into())),

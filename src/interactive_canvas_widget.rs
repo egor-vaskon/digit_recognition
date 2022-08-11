@@ -156,14 +156,14 @@ impl InteractiveCanvasState {
         self.invalidate();
     }
 
-    pub fn copy_pixels(&self, size_dimension: u32) -> Result<Vec<u8>, piet::Error> {
+    pub fn copy_pixels_grayscale(&self, size_dimension: u32) -> Result<Vec<u8>, piet::Error> {
         let content = self.content.lock().unwrap();
         let mut device = Device::new()?;
         let mut target =
             device
                 .bitmap_target(size_dimension as usize,
                                size_dimension as usize,
-                               size_dimension as f64)?;
+                               1.0)?;
 
         let size = Size::new(size_dimension as f64,
                              size_dimension as f64);
@@ -173,10 +173,17 @@ impl InteractiveCanvasState {
 
         context.finish()?;
 
-        let mut buf = vec![0u8; size.area() as usize];
+        let mut buf = vec![0u8; (size_dimension*size_dimension * 4) as usize];
         target.copy_raw_pixels(ImageFormat::RgbaPremul, &mut buf)?;
 
-        Ok(buf)
+        let mut pixels = Vec::with_capacity(size.area() as usize);
+        for pixel in buf.chunks(4) {
+            let color = Color::rgba8(pixel[0], pixel[1], pixel[2], pixel[3]);
+            let (r,g, b, a) = color.as_rgba();
+            pixels.push(((r*0.299 + g*0.587 + b*0.114) * 255.0) as u8);
+        }
+
+        Ok(pixels)
     }
 
     fn invalidate(&mut self) {

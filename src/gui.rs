@@ -1,14 +1,16 @@
-use druid::{Data, Lens, AppLauncher, Color, Insets, LocalizedString,
-            MenuDesc, PlatformError, Size, TextAlignment, Widget, WidgetExt, WindowDesc};
+use druid::{Data, Lens, AppLauncher, Color, Insets, LocalizedString, MenuDesc, PlatformError, Size, TextAlignment, Widget, WidgetExt, WindowDesc, piet};
 use druid::widget::{Button, Flex, FlexParams, Label, SizedBox};
 use thiserror::Error;
-use crate::data::Image;
+use crate::data::{Image, ImageSize};
 use crate::interactive_canvas_widget::{InteractiveCanvas, InteractiveCanvasState};
 
 #[derive(Error, Debug)]
 pub enum ErrorKind {
     #[error("cannot render gui, because of druid error")]
-    DruidPlatformError(#[from] PlatformError)
+    DruidPlatformError(#[from] PlatformError),
+
+    #[error("cannot copy pixels from image ({0})")]
+    CannotCopyPixels(#[from] piet::Error)
 }
 
 pub type Result<T> = std::result::Result<T, ErrorKind>;
@@ -28,7 +30,7 @@ impl Default for AppState {
             canvas_state: InteractiveCanvasState::builder()
                 .with_background(Color::WHITE)
                 .with_stroke_brush(Color::BLACK)
-                .with_stroke_width(0.025)
+                .with_stroke_width(0.05)
                 .build()
         }
     }
@@ -39,28 +41,27 @@ pub struct ImageLoader<'a> {
 }
 
 impl ImageLoader<'_> {
-    pub fn load_image(&self, size_dimension: u32) -> Image {
-        let pixels = self.canvas.copy_pixels(size_dimension).unwrap();
-        Image::builder()
-            .with_size(size_dimension, size_dimension)
+    pub fn load_image(&self, size_dimension: u32) -> Result<Image> {
+        let pixels = self.canvas.copy_pixels_grayscale(size_dimension)?;
+        Ok(Image::builder()
+            .with_size(ImageSize::square(size_dimension))
             .with_pixels_row_major(pixels)
-            .build()
+            .build())
     }
 }
 
 pub fn launch<F>(on_submit: F) -> Result<()>
-    where F: Fn(ImageLoader) + 'static
+    where F: Fn(ImageLoader) -> (u8, f64) + 'static
 {
-    open_window(move |canvas| {
-        canvas.clear();
-        let image_loader = ImageLoader { canvas };
-
-        on_submit(image_loader)
+    open_window(move |state| {
+        let image_loader = ImageLoader { canvas: &mut state.canvas_state };
+        (state.digit, state.accuracy) = on_submit(image_loader);
+        state.canvas_state.clear();
     })
 }
 
 fn open_window<F>(on_submit: F) -> Result<()>
-    where F: Fn(&mut InteractiveCanvasState) + 'static
+    where F: Fn(&mut AppState) + 'static
 {
     let window_menu = MenuDesc::new(LocalizedString::new("window_title"));
     let window = WindowDesc::new(move || build_ui(on_submit))
@@ -76,7 +77,7 @@ fn open_window<F>(on_submit: F) -> Result<()>
 }
 
 fn build_ui<F>(on_submit: F) -> impl Widget<AppState>
-    where F: Fn(&mut InteractiveCanvasState) + 'static
+    where F: Fn(&mut AppState) + 'static
 {
     let canvas = InteractiveCanvas::default()
         .with_state(
@@ -103,7 +104,7 @@ fn build_ui<F>(on_submit: F) -> impl Widget<AppState>
     let submit_button =
         Button::from_label(submit_button_label)
             .on_click(move |_, state, _|
-                on_submit(&mut state.canvas_state));
+                on_submit(state));
 
     let controls =
         Flex::column()
