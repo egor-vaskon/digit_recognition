@@ -41,7 +41,7 @@ const PRECISION: f64 = 1e-8;
 const MIN_WEIGHT_OR_BIAS: f64 = -1.0 + PRECISION;
 const MAX_WEIGHT_OR_BIAS: f64 = 1.0 - PRECISION;
 
-const LEARNING_RATE: f64 = 0.1;
+const LEARNING_RATE: f64 = 0.05;
 const ACCURACY: f64 = 0.01;
 
 #[inline(always)]
@@ -49,26 +49,31 @@ fn relu(x: f64) -> f64 {
     /*return if x >= 0.0 {
         x
     } else {
-        0.1*x
+        0.0
     }*/
 
     1.0 / (1.0 + E.powf(-x))
+
+    //x.tanh()
 }
 
 #[inline(always)]
 fn relu_prime(x: f64) -> f64 {
-    /*return if x > 0.0 {
+    /*return if x >= 0.0 {
         1.0
     } else {
-        0.1
+        0.0
     }*/
     let val = relu(x);
     val*(1.0-val)
+
+    /*let val = x.tanh();
+    1.0 - val*val*/
 }
 
 fn cross_entropy_loss(out: &DVector<f64>, expected: &DVector<f64>) -> f64 {
-    eprintln!("out: {:.10}", out);
-    eprintln!("expected: {:.10}", expected);
+    //eprintln!("out: {:.10}", out);
+    //eprintln!("expected: {:.10}", expected);
 
     let mut result = 0.0;
     for (i, out_i) in zip(expected.iter(), out.iter()) {
@@ -172,8 +177,8 @@ impl NeuralNetwork {
 
     pub fn new_untrained() -> NeuralNetwork {
         let mut rng = thread_rng();
-        let weight_distr = Normal::new(0.0, 0.1).unwrap();
-        let bias_distr = Normal::new(0.0, 0.1).unwrap();
+        let weight_distr = Normal::new(0.0, 0.01).unwrap();
+        let bias_distr = Normal::new(0.0, 0.01).unwrap();
 
         let layers = vec![
             Layer::new_untrained(&mut rng, &weight_distr, &bias_distr, INPUT_LAYER_SIZE, HIDDEN_LAYER_SIZE),
@@ -222,7 +227,7 @@ impl NeuralNetwork {
         result.derivatives.push(softmax_prime(&result.result));
         softmax(&mut result.result);
 
-        println!("result: {:.2}", &result.result);
+        //println!("result: {:.2}", &result.result);
 
         result
     }
@@ -263,7 +268,7 @@ impl NeuralNetwork {
 
         local_gradients.reverse();
 
-        /*for (i, layer) in self.layers.iter_mut().enumerate() {
+        for (i, layer) in self.layers.iter_mut().enumerate() {
             // update weights
             let prev_activation = &result.activations[i];
             for (k, mut column) in layer.weights.column_iter_mut().enumerate()  {
@@ -275,6 +280,6 @@ impl NeuralNetwork {
 
             // update biases
             layer.biases.sub_assign(local_gradients[i].clone_owned() * LEARNING_RATE);
-        }*/
+        }
     }
 }

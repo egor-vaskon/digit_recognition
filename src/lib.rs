@@ -2,6 +2,7 @@ extern crate core;
 
 use std::{env, io};
 use std::fs::File;
+use std::ops::Deref;
 use args::Args;
 use getopts::Occur;
 use nalgebra::DVector;
@@ -56,8 +57,11 @@ enum Action {
 pub fn launch() -> Result<()> {
     let action = parse_args()?;
     let mut neural_network =
-        NeuralNetwork::load("neural_network.json")
+        NeuralNetwork::load("neural_network_4.json")
             .unwrap_or(NeuralNetwork::new_untrained());
+
+    let mut correct_answers = 0;
+    let mut incorrect_answers = 0;
 
     match action {
         Action::ShowGui => gui::launch(move |img_loader| {
@@ -65,7 +69,7 @@ pub fn launch() -> Result<()> {
             let image_pixels = image.pixels();
             let input =
                 DVector::from_iterator(28*28, image_pixels.iter()
-                    .map(|x| 1.0 - ((*x as f64) / 255.0) - 0.5));
+                    .map(|x| (1.0 - ((*x as f64) / 255.0)) - 0.5));
 
             let output = neural_network.compute(input);
             let (digit, chance) = output
@@ -94,7 +98,7 @@ pub fn launch() -> Result<()> {
 
             let mut count = vec![0; 10];
 
-            for (i, example) in dataset.take(10_000).enumerate() {
+            for (i, example) in dataset.take(60_000).enumerate() {
                 match example {
                     Ok(example) => {
                         let pixels =
@@ -109,7 +113,16 @@ pub fn launch() -> Result<()> {
                         let mut expected_output = DVector::zeros(10);
                         expected_output[example.label().digit() as usize] = 1.0;
 
-                        neural_network.train(pixels, &expected_output);
+                        //neural_network.train(pixels, &expected_output);
+                        let res = neural_network.compute(pixels);
+
+                        println!("expected: {}, found: {}.", example.label().digit(), res.argmax().0);
+
+                        if example.label().digit() == (res.argmax().0 as u8) {
+                            correct_answers += 1;
+                        } else {
+                            incorrect_answers += 1;
+                        }
 
                         let completion = ((i+1) as f64) / (dataset_size as f64);
                         println!("Finished {} training examples ({:.2}%)", i+1, completion*100.0);
@@ -120,8 +133,11 @@ pub fn launch() -> Result<()> {
                 }
             }
 
+            println!("error rate: {}",
+                     (incorrect_answers as f64) / ((correct_answers + incorrect_answers) as f64));
+
             println!("cc: {}", DVector::from_column_slice(&count));
-            neural_network.save("neural_network.json");
+            //neural_network.save("neural_network_4.json");
         }
     }
 

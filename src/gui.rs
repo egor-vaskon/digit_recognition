@@ -30,7 +30,7 @@ impl Default for AppState {
             canvas_state: InteractiveCanvasState::builder()
                 .with_background(Color::WHITE)
                 .with_stroke_brush(Color::BLACK)
-                .with_stroke_width(0.05)
+                .with_stroke_width(0.036)
                 .build()
         }
     }
